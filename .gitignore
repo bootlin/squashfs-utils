@@ -1,7 +1,13 @@
+# Vim swap/temporary files
+*~
+*.swp
+*.swo
+
 # Prerequisites
 *.d
 
 # Object files
+sqfs
 *.o
 *.ko
 *.obj
