@@ -8,6 +8,7 @@
 #ifndef SQFS_FILESYSTEM_H
 #define SQFS_FILESYSTEM_H
 
+#include <asm/unaligned.h>
 #include <stdint.h>
 #include <fs.h>
 
@@ -26,6 +27,7 @@
 #define SQFS_MISC_ENTRY_TYPE -1
 #define SQFS_EMPTY_FILE_SIZE 3
 #define SQFS_STOP_READDIR 0
+#define SQFS_CONTINUE_READDIR 1
 #define SQFS_EMPTY_DIR -1
 /*
  * A directory entry object has a fixed length of 8 bytes, corresponding to its
@@ -72,9 +74,9 @@ struct squashfs_super_block {
 };
 
 struct squashfs_directory_index {
-	uint32_t index;
-	uint32_t start;
-	uint32_t size;
+	u32 index;
+	u32 start;
+	u32 size;
 	char name[0];
 };
 
@@ -227,66 +229,74 @@ struct squashfs_directory_entry {
 };
 
 struct squashfs_directory_header {
-	uint32_t count;
-	uint32_t start;
-	uint32_t inode_number;
+	u32 count;
+	u32 start;
+	u32 inode_number;
 };
 
 struct squashfs_fragment_block_entry {
-	uint64_t start;
-	uint32_t size;
-	uint32_t _unused;
+	u64 start;
+	u32 size;
+	u32 _unused;
 };
 
 
 struct squashfs_dir_stream {
 	struct fs_dir_stream *fs_dirs;
 	struct fs_dirent *dentp;
-	/* table points to a position into the directory table */
-	void *table;
-	/* uncompressed size of the entire listing, including headers */
-	int size;
+	/*
+	 * 'size' is the uncompressed size of the entire listing, including
+	 * headers. 'entry_count' is the number of entries following a
+	 * specific header. Both variables are decremented in sqfs_readdir() so
+	 * the function knows when the end of the directory is reached.
+	 */
+	size_t size;
 	int entry_count;
 	/* SquashFS structures */
 	struct squashfs_directory_header *dir_header;
 	struct squashfs_directory_entry *entry;
+	/*
+	 * 'table' points to a position into the directory table. Both 'table'
+	 * and 'inode' are defined for the first time in sqfs_opendir(). 
+	 * 'table's value changes in sqfs_readdir().
+	 */
+	unsigned char *table;
 	union squashfs_inode i;
-	/* References to the tables' beginnings */
-	char *inode_table;
-	char *dir_table;
-
+	struct squashfs_dir_inode i_dir;
+	struct squashfs_ldir_inode i_ldir;
+	/*
+	 * References to the tables' beginnings. They are assigned in
+	 * sqfs_opendir() and freed in sqfs_closedir().
+	 */
+	unsigned char *inode_table;
+	unsigned char *dir_table;
 };
 
 struct squashfs_file_info {
 	/* File size in bytes (uncompressed) */
 	size_t size;
 	/* Reference to list of data blocks's sizes */
-	uint32_t *blk_sizes;
+	u32 *blk_sizes;
 	/* Offset into the fragment block */
-	uint32_t *offset;
+	u32 offset;
 	/* Offset in which the data blocks begin */
-	uint64_t start;
+	u64 start;
 	/* Is file fragmented? */
 	bool frag;
 	/* Compressed fragment */
 	bool comp;
 };
 
-void *sqfs_find_inode(void *inode_table, int inode_number, int inode_count,
-		      uint32_t block_size);
+void *sqfs_find_inode(void *inode_table, int inode_number, __le32 inode_count,
+		      __le32 block_size);
 
-int sqfs_search_entry(union squashfs_inode *i, char **token_list,
-		      int token_count, void *inode_table, void *dir_table,
-		      int inode_count, int block_size);
+int sqfs_dir_offset(void *dir_i, u32 *m_list, int m_count);
 
+int sqfs_read_metablock(unsigned char *file_mapping, int offset,
+			bool *compressed, u32 *data_size);
 
-int sqfs_dir_offset(union squashfs_inode *i, uint32_t *m_list, int m_count);
+bool sqfs_is_empty_dir(void *dir_i);
 
-int sqfs_read_metablock(void *file_mapping, int offset, bool *compressed,
-			uint32_t *data_size);
-
-bool sqfs_is_empty_dir(union squashfs_inode *i);
-
-bool sqfs_is_dir(union squashfs_inode *i);
+bool sqfs_is_dir(__le16 type);
 
 #endif /* SQFS_FILESYSTEM_H */
